@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.IO.Compression;
-using System.Net;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,12 +12,23 @@ namespace CompressedWebApi.Handlers
     {
         public enum EncodingType
         {
+            /// <summary>
+            /// Deflate compression.
+            /// </summary>
             Deflate,
+
+            /// <summary>
+            /// gZip compression.
+            /// </summary>
             Gzip
         }
 
         readonly Func<HttpContent, HttpContent> _factory;
 
+        /// <summary>
+        /// Initializes a new instance of <see cref="RequestCompressionHandler" />.
+        /// </summary>
+        /// <param name="encodingType">Encoding to use for request content.</param>
         public RequestCompressionHandler(EncodingType encodingType = EncodingType.Gzip)
         {
             switch (encodingType)
@@ -35,47 +46,64 @@ namespace CompressedWebApi.Handlers
             }
         }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        /// <inheritdoc />
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            CompressRequest(request);
+            var response = await base.SendAsync(request, cancellationToken);
+            DecompressResponseAsync(response);
+
+            return response;
+        }
+
+        /// <summary>
+        /// Compress request message content if required.
+        /// </summary>
+        /// <param name="request">Request message to compress.</param>
+        void CompressRequest(HttpRequestMessage request)
         {
             if (request.Content != null)
             {
                 request.Content = _factory(request.Content);
             }
-
-            return base.SendAsync(request, cancellationToken);
         }
 
-        class CompressedContent : HttpContent
+        /// <summary>
+        /// Decompress response stream if required.
+        /// </summary>
+        /// <param name="response">Response stream to decompress.</param>
+        static async void DecompressResponseAsync(HttpResponseMessage response)
         {
-            readonly HttpContent _content;
-            readonly Func<Stream, Stream> _factory;
-
-            public CompressedContent(HttpContent content, string encodingType, Func<Stream, Stream> factory)
+            var encoding = response.Content?.Headers.ContentEncoding;
+            if (encoding == null || encoding.Any() == false)
             {
-                _content = content;
-                _factory = factory;
-
-                foreach (var header in content.Headers)
-                {
-                    Headers.TryAddWithoutValidation(header.Key, header.Value);
-                }
-
-                Headers.ContentEncoding.Add(encodingType);
+                return;
             }
 
-            protected override async Task SerializeToStreamAsync(Stream stream, TransportContext context)
+            if (encoding.Count != 1)
             {
-                using (var compressedStream = _factory(stream))
-                {
-                    await _content.CopyToAsync(compressedStream);
-                }
+                throw new ArgumentOutOfRangeException(
+                    nameof(response.Content.Headers.ContentEncoding),
+                    $"{nameof(RequestCompressionHandler)} does not support more than one encoding.");
             }
 
-            protected override bool TryComputeLength(out long length)
+            var encodingType = encoding.Single().ToLowerInvariant();
+            Stream stream;
+            switch (encodingType)
             {
-                length = -1;
-                return false;
+                case "deflate":
+                    stream = new DeflateStream(await response.Content.ReadAsStreamAsync(), CompressionMode.Decompress);
+                    break;
+
+                case "gzip":
+                    stream = new GZipStream(await response.Content.ReadAsStreamAsync(), CompressionMode.Decompress);
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(response.Content.Headers.ContentEncoding), encodingType, "Encoding not supported.");
             }
+
+            response.Content = new DecompressedContent(response.Content, stream);
         }
     }
 }

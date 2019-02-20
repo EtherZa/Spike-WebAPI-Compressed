@@ -2,7 +2,6 @@
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,16 +10,21 @@ namespace CompressedWebApi.Handlers
 {
     public class ResponseCompressionHandler : DelegatingHandler
     {
+        /// <inheritdoc />
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Decompress(request);
+            DecompressRequestAsync(request);
             var response = await base.SendAsync(request, cancellationToken);
-            Compress(response);
+            CompressResponse(response);
 
             return response;
         }
 
-        static void Compress(HttpResponseMessage response)
+        /// <summary>
+        /// Compress the response as per requested encoding.
+        /// </summary>
+        /// <param name="response">Response message to compress.</param>
+        static void CompressResponse(HttpResponseMessage response)
         {
             void ReplaceStream(string encoding, Func<Stream, Stream> factory)
             {
@@ -28,7 +32,8 @@ namespace CompressedWebApi.Handlers
             }
 
             if (response.Content == null
-                || response.RequestMessage.Headers.AcceptEncoding == null)
+                || response.RequestMessage.Headers.AcceptEncoding == null
+                || response.RequestMessage.Headers.AcceptEncoding.Any() == false)
             {
                 return;
             }
@@ -46,11 +51,13 @@ namespace CompressedWebApi.Handlers
                         return;
                 }
             }
-
-            throw new ArgumentOutOfRangeException(nameof(response.RequestMessage.Headers.AcceptEncoding), "Encoding does not include any supported encodings.");
         }
 
-        static async void Decompress(HttpRequestMessage request)
+        /// <summary>
+        /// Decompress request message if required.
+        /// </summary>
+        /// <param name="request">Request message to decompress.</param>
+        static async void DecompressRequestAsync(HttpRequestMessage request)
         {
             var encoding = request.Content?.Headers.ContentEncoding;
             if (encoding == null || encoding.Any() == false)
@@ -82,52 +89,6 @@ namespace CompressedWebApi.Handlers
             }
 
             request.Content = new DecompressedContent(request.Content, stream);
-        }
-    }
-
-    sealed class CompressedContent : HttpContent
-    {
-        readonly HttpContent _content;
-        readonly Func<Stream, Stream> _factory;
-
-        public CompressedContent(HttpContent content, string encodingType, Func<Stream, Stream> factory)
-        {
-            _content = content;
-            _factory = factory;
-
-            foreach (var header in content.Headers)
-            {
-                Headers.TryAddWithoutValidation(header.Key, header.Value);
-            }
-
-            Headers.ContentEncoding.Add(encodingType);
-        }
-
-        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext context)
-        {
-            using (var compressedStream = _factory(stream))
-            {
-                await _content.CopyToAsync(compressedStream);
-            }
-        }
-
-        protected override bool TryComputeLength(out long length)
-        {
-            length = -1;
-            return false;
-        }
-    }
-
-    sealed class DecompressedContent : StreamContent
-    {
-        public DecompressedContent(HttpContent content, Stream stream)
-            : base(stream)
-        {
-            // copy the headers from the original content
-            foreach (var header in content.Headers)
-            {
-                Headers.TryAddWithoutValidation(header.Key, header.Value);
-            }
         }
     }
 }
