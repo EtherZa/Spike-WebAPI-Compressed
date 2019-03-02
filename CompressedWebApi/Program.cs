@@ -15,8 +15,7 @@ namespace CompressedWebApi
 
             using (WebApp.Start<Startup>(url: baseAddress))
             {
-                var client = HttpClientFactory.Create(new HttpClientHandler { AutomaticDecompression = DecompressionMethods.GZip }, new RequestCompressionHandler());
-                //var client = HttpClientFactory.Create(new HttpClientHandler { AutomaticDecompression = DecompressionMethods.GZip });
+                var client = HttpClientFactory.Create(new HttpClientHandler(), new ClientCompressionHandler(ContentEncoding.Gzip, ContentEncoding.Deflate));
 
                 var requestUri = baseAddress + "api/values";
 

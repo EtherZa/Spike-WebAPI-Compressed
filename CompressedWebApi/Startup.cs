@@ -15,7 +15,7 @@ namespace CompressedWebApi
                 defaults: new { id = RouteParameter.Optional }
             );
 
-            config.MessageHandlers.Add(new ResponseCompressionHandler());
+            config.MessageHandlers.Add(new ServerCompressionHandler());
 
             appBuilder.UseWebApi(config);
         }

@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace CompressedWebApi.Handlers
 {
-    public class ResponseCompressionHandler : DelegatingHandler
+    public class ServerCompressionHandler : DelegatingHandler
     {
         /// <inheritdoc />
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -69,7 +69,7 @@ namespace CompressedWebApi.Handlers
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(request.Content.Headers.ContentEncoding),
-                    $"{nameof(ResponseCompressionHandler)} does not support more than one encoding.");
+                    $"{nameof(ServerCompressionHandler)} does not support more than one encoding.");
             }
 
             var encodingType = encoding.Single().ToLowerInvariant();
